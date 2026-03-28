@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import InsightsChart from "./components/InsightsChart.jsx";
+import ReceiptScanModal from "./components/ReceiptScanModal.jsx";
+import { parseReceiptText } from "./utils/receiptParse.js";
 
 const categories = ["food", "housing", "utilities", "transport", "entertainment", "salary", "other"];
 
@@ -16,9 +19,14 @@ const initialTransactions = [
 
 const translations = {
   en: {
-    appTitle: "Finance Tracker",
-    subtitle: "Track your income and expenses with smart filters",
+    appTitle: "FlowSpend",
+    subtitle: "Private finance OS — smart receipt capture and spend forecasts",
+    taglineScan: "AI-style OCR",
+    taglineForecast: "Trend forecasts",
+    taglinePrivate: "Your data stays on-device",
     language: "العربية",
+    themeDark: "Dark",
+    themeLight: "Light",
     user: "User",
     users: "Users",
     userPlaceholder: "Enter your name",
@@ -32,6 +40,8 @@ const translations = {
     txCount: "Transactions",
     avgExpense: "Avg Expense",
     addTransaction: "Add Transaction",
+    scanReceipt: "Scan receipt",
+    scanning: "Reading receipt…",
     description: "Description",
     amount: "Amount",
     date: "Date",
@@ -61,6 +71,28 @@ const translations = {
     incomeType: "Income",
     expenseType: "Expense",
     invalidInput: "Enter valid description and amount.",
+    reviewReceipt: "Review scanned receipt",
+    receiptReviewHint: "OCR suggested these values — adjust anything before saving.",
+    cancel: "Cancel",
+    addToLedger: "Add to ledger",
+    close: "Close",
+    ocrError: "Could not read this image. Try a clearer photo or enter manually.",
+    insightsTitle: "Spend intelligence",
+    insightsSubtitle: "Six-month expense trend with a statistical next-month outlook",
+    forecastNextMonth: "Next month (est.)",
+    lastMonthSpend: "This month",
+    avgSixMonth: "6-mo average",
+    narrativePrefix: "Your burn pattern looks",
+    narrativeSuffix: "Our model suggests roughly",
+    narrativeEnd: "in expenses next month (projection, not advice).",
+    trendUp: "tilted upward",
+    trendDown: "cooling down",
+    trendSteady: "fairly stable",
+    seriesActual: "Actual spend",
+    seriesForecast: "Forecast",
+    actual: "Actual",
+    forecast: "Forecast",
+    chartFootnote: "* Forecast uses linear regression on your last six monthly expense totals.",
     categories: {
       food: "Food",
       housing: "Housing",
@@ -72,9 +104,14 @@ const translations = {
     },
   },
   ar: {
-    appTitle: "متتبع المصروفات",
-    subtitle: "تابع الدخل والمصروفات مع فلاتر ذكية",
+    appTitle: "FlowSpend",
+    subtitle: "نظام مالي خاص — مسح الإيصالات وتوقعات الإنفاق",
+    taglineScan: "تعرف ضوئي ذكي",
+    taglineForecast: "توقعات الاتجاه",
+    taglinePrivate: "بياناتك على جهازك",
     language: "English",
+    themeDark: "داكن",
+    themeLight: "فاتح",
     user: "المستخدم",
     users: "المستخدمون",
     userPlaceholder: "ادخل اسمك",
@@ -88,6 +125,8 @@ const translations = {
     txCount: "عدد العمليات",
     avgExpense: "متوسط المصروف",
     addTransaction: "إضافة عملية",
+    scanReceipt: "مسح إيصال",
+    scanning: "جاري قراءة الإيصال…",
     description: "الوصف",
     amount: "المبلغ",
     date: "التاريخ",
@@ -117,6 +156,28 @@ const translations = {
     incomeType: "دخل",
     expenseType: "مصروف",
     invalidInput: "أدخل وصفا ومبلغا صحيحا.",
+    reviewReceipt: "مراجعة الإيصال",
+    receiptReviewHint: "اقترح التعرف الضوئي هذه القيم — عدّل قبل الحفظ.",
+    cancel: "إلغاء",
+    addToLedger: "إضافة للسجل",
+    close: "إغلاق",
+    ocrError: "تعذر قراءة الصورة. جرّب صورة أوضح أو أدخل يدويا.",
+    insightsTitle: "ذكاء الإنفاق",
+    insightsSubtitle: "اتجاه ستة أشهر مع تقدير للشهر القادم",
+    forecastNextMonth: "الشهر القادم (تقدير)",
+    lastMonthSpend: "هذا الشهر",
+    avgSixMonth: "متوسط 6 أشهر",
+    narrativePrefix: "نمط إنفاقك يبدو",
+    narrativeSuffix: "النموذج يقترح تقريبا",
+    narrativeEnd: "مصروفات للشهر القادم (تقدير وليس نصيحة).",
+    trendUp: "في صعود",
+    trendDown: "في هدوء",
+    trendSteady: "مستقر نسبيا",
+    seriesActual: "إنفاق فعلي",
+    seriesForecast: "توقع",
+    actual: "فعلي",
+    forecast: "توقع",
+    chartFootnote: "* التوقع يعتمد على انحدار خطي لمجموع مصروفات آخر ستة أشهر.",
     categories: {
       food: "طعام",
       housing: "سكن",
@@ -131,6 +192,12 @@ const translations = {
 
 function getSavedUser() {
   return localStorage.getItem("finance_active_user") || "default";
+}
+
+function getSavedTheme() {
+  const v = localStorage.getItem("finance_theme");
+  if (v === "dark" || v === "light") return v;
+  return "light";
 }
 
 function persistTransactionsForUser(user, list) {
@@ -173,6 +240,7 @@ function isInPeriod(transactionDate, period) {
 }
 
 function App() {
+  const [theme, setTheme] = useState(() => getSavedTheme());
   const [lang, setLang] = useState("en");
   const [activeUser, setActiveUser] = useState(() => getSavedUser());
   const [userInput, setUserInput] = useState(() => getSavedUser());
@@ -185,6 +253,19 @@ function App() {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [error, setError] = useState("");
 
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptProgress, setReceiptProgress] = useState(0);
+  const [receiptError, setReceiptError] = useState("");
+  const [receiptDraft, setReceiptDraft] = useState({
+    description: "",
+    amount: "",
+    date: new Date().toISOString().split("T")[0],
+    category: "food",
+  });
+
+  const receiptInputRef = useRef(null);
+
   const [period, setPeriod] = useState("monthly");
   const [filterType, setFilterType] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
@@ -196,6 +277,7 @@ function App() {
   const t = translations[lang];
   const locale = lang === "ar" ? "ar-EG" : "en-US";
   const dir = lang === "ar" ? "rtl" : "ltr";
+  const isDark = theme === "dark";
 
   const formatCurrency = (value) =>
     new Intl.NumberFormat(locale, {
@@ -213,6 +295,11 @@ function App() {
     setDateFrom("");
     setDateTo("");
   };
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("finance_theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     persistTransactionsForUser(activeUser, transactions);
@@ -316,14 +403,122 @@ function App() {
     setTransactions((previous) => previous.filter((transaction) => transaction.id !== id));
   };
 
+  const triggerReceiptPick = () => {
+    receiptInputRef.current?.click();
+  };
+
+  const handleReceiptFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !file.type.startsWith("image/")) {
+      return;
+    }
+    setReceiptLoading(true);
+    setReceiptProgress(0);
+    setReceiptError("");
+    try {
+      const { createWorker } = await import("tesseract.js");
+      const worker = await createWorker("eng", 1, {
+        logger: (m) => {
+          if (m.status === "recognizing text") {
+            setReceiptProgress(typeof m.progress === "number" ? m.progress : 0);
+          }
+        },
+      });
+      const {
+        data: { text },
+      } = await worker.recognize(file);
+      await worker.terminate();
+      const parsed = parseReceiptText(text);
+      setReceiptDraft({
+        description: parsed.description,
+        amount: parsed.amount != null ? String(parsed.amount) : "",
+        date: parsed.date,
+        category: categories.includes(parsed.category) ? parsed.category : "other",
+      });
+      setReceiptOpen(true);
+    } catch {
+      setReceiptError(t.ocrError);
+      setReceiptOpen(true);
+      setReceiptDraft({
+        description: "",
+        amount: "",
+        date: new Date().toISOString().split("T")[0],
+        category: "food",
+      });
+    } finally {
+      setReceiptLoading(false);
+      setReceiptProgress(0);
+    }
+  };
+
+  const handleReceiptConfirm = () => {
+    const parsedAmount = Number(receiptDraft.amount);
+    if (!receiptDraft.description.trim() || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+      setReceiptError(t.invalidInput);
+      return;
+    }
+    setReceiptError("");
+    setTransactions((previous) => [
+      {
+        id: Date.now(),
+        description: receiptDraft.description.trim(),
+        amount: parsedAmount,
+        type: "expense",
+        category: receiptDraft.category,
+        date: receiptDraft.date,
+      },
+      ...previous,
+    ]);
+    setReceiptOpen(false);
+  };
+
   return (
     <div className={`app ${dir}`} dir={dir}>
+      <input
+        ref={receiptInputRef}
+        type="file"
+        accept="image/*"
+        className="visually-hidden"
+        aria-hidden
+        tabIndex={-1}
+        onChange={handleReceiptFile}
+      />
+
+      <ReceiptScanModal
+        open={receiptOpen}
+        onClose={() => {
+          if (!receiptLoading) setReceiptOpen(false);
+        }}
+        draft={receiptDraft}
+        onChangeDraft={setReceiptDraft}
+        onConfirm={handleReceiptConfirm}
+        loading={receiptLoading}
+        progress={receiptProgress}
+        error={receiptError}
+        t={t}
+        categoryKeys={categories}
+      />
+
       <div className="top-bar">
         <div>
           <h1>{t.appTitle}</h1>
           <p className="subtitle">{t.subtitle}</p>
+          <div className="hero-tags" aria-label="Product highlights">
+            <span className="hero-tag">{t.taglineScan}</span>
+            <span className="hero-tag">{t.taglineForecast}</span>
+            <span className="hero-tag">{t.taglinePrivate}</span>
+          </div>
         </div>
         <div className="top-actions">
+          <button
+            type="button"
+            className="theme-btn"
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+            aria-label={isDark ? t.themeLight : t.themeDark}
+          >
+            {isDark ? t.themeLight : t.themeDark}
+          </button>
           <button type="button" className="lang-btn" onClick={() => setLang(lang === "en" ? "ar" : "en")}>
             {t.language}
           </button>
@@ -337,7 +532,7 @@ function App() {
           type="text"
           value={userInput}
           placeholder={t.userPlaceholder}
-          onChange={(event) => setUserInput(event.target.value)}
+          onChange={(e) => setUserInput(e.target.value)}
         />
         <button type="button" className="save-user-btn" onClick={handleSaveUser}>
           {t.saveUser}
@@ -390,17 +585,30 @@ function App() {
         </div>
       </div>
 
+      <InsightsChart
+        transactions={transactions}
+        locale={locale}
+        formatCurrency={formatCurrency}
+        t={t}
+        isDark={isDark}
+      />
+
       <div className="add-transaction">
-        <h2>{t.addTransaction}</h2>
+        <div className="section-head">
+          <h2>{t.addTransaction}</h2>
+          <button type="button" className="scan-receipt-btn" onClick={triggerReceiptPick} disabled={receiptLoading}>
+            {receiptLoading ? t.scanning : t.scanReceipt}
+          </button>
+        </div>
         <form onSubmit={handleSubmit}>
-          <input type="text" placeholder={t.description} value={description} onChange={(event) => setDescription(event.target.value)} />
-          <input type="number" placeholder={t.amount} value={amount} min="0" step="0.01" onChange={(event) => setAmount(event.target.value)} />
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-          <select value={type} onChange={(event) => setType(event.target.value)}>
+          <input type="text" placeholder={t.description} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <input type="number" placeholder={t.amount} value={amount} min="0" step="0.01" onChange={(e) => setAmount(e.target.value)} />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="income">{t.incomeType}</option>
             <option value="expense">{t.expenseType}</option>
           </select>
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
             {categories.map((currentCategory) => (
               <option key={currentCategory} value={currentCategory}>
                 {t.categories[currentCategory]}
@@ -415,18 +623,18 @@ function App() {
       <div className="transactions">
         <h2>{t.txCount}</h2>
         <div className="filters advanced-filters">
-          <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+          <select value={period} onChange={(e) => setPeriod(e.target.value)}>
             <option value="all">{t.allTime}</option>
             <option value="weekly">{t.weekly}</option>
             <option value="monthly">{t.monthly}</option>
             <option value="yearly">{t.yearly}</option>
           </select>
-          <select value={filterType} onChange={(event) => setFilterType(event.target.value)}>
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
             <option value="all">{t.allTypes}</option>
             <option value="income">{t.incomeType}</option>
             <option value="expense">{t.expenseType}</option>
           </select>
-          <select value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)}>
+          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
             <option value="all">{t.allCategories}</option>
             {categories.map((currentCategory) => (
               <option key={currentCategory} value={currentCategory}>
@@ -434,15 +642,15 @@ function App() {
               </option>
             ))}
           </select>
-          <input type="text" placeholder={t.searchPlaceholder} value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+          <input type="text" placeholder={t.searchPlaceholder} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             <option value="latest">{t.latest}</option>
             <option value="oldest">{t.oldest}</option>
             <option value="amountHigh">{t.amountHigh}</option>
             <option value="amountLow">{t.amountLow}</option>
           </select>
-          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label={t.from} />
-          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label={t.to} />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label={t.from} />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label={t.to} />
           <button type="button" className="clear-btn" onClick={clearFilters}>
             {t.clearFilters}
           </button>
