@@ -11,6 +11,7 @@ export default function ReceiptScanModal({
   error,
   t,
   categoryKeys,
+  hint,
 }) {
   const firstField = useRef(null);
   useEffect(() => {
@@ -32,7 +33,7 @@ export default function ReceiptScanModal({
             ×
           </button>
         </div>
-        <p className="modal-hint">{t.receiptReviewHint}</p>
+        <p className="modal-hint">{hint ?? t.receiptReviewHintLocal}</p>
         {loading ? (
           <div className="ocr-progress">
             <div className="ocr-progress-bar" style={{ width: `${Math.min(100, Math.round(progress * 100))}%` }} />

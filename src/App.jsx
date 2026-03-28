@@ -2,6 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import InsightsChart from "./components/InsightsChart.jsx";
 import ReceiptScanModal from "./components/ReceiptScanModal.jsx";
+import { parseReceiptViaOpenAI } from "./api/receiptClient.js";
+import {
+  exportTransactionsExcel,
+  exportTransactionsPdf,
+  mapTransactionsForExport,
+  safeExportFilenamePart,
+} from "./utils/exportReports.js";
 import { parseReceiptText } from "./utils/receiptParse.js";
 
 const categories = ["food", "housing", "utilities", "transport", "entertainment", "salary", "other"];
@@ -21,7 +28,7 @@ const translations = {
   en: {
     appTitle: "FlowSpend",
     subtitle: "Private finance OS — smart receipt capture and spend forecasts",
-    taglineScan: "AI-style OCR",
+    taglineScan: "OpenAI receipt parse",
     taglineForecast: "Trend forecasts",
     taglinePrivate: "Your data stays on-device",
     language: "العربية",
@@ -72,7 +79,8 @@ const translations = {
     expenseType: "Expense",
     invalidInput: "Enter valid description and amount.",
     reviewReceipt: "Review scanned receipt",
-    receiptReviewHint: "OCR suggested these values — adjust anything before saving.",
+    receiptReviewHintOpenAI: "OpenAI read this receipt — adjust anything before saving.",
+    receiptReviewHintLocal: "On-device OCR suggested these values — adjust before saving.",
     cancel: "Cancel",
     addToLedger: "Add to ledger",
     close: "Close",
@@ -93,6 +101,9 @@ const translations = {
     actual: "Actual",
     forecast: "Forecast",
     chartFootnote: "* Forecast uses linear regression on your last six monthly expense totals.",
+    exportHint: "Export the filtered list below.",
+    exportExcel: "Excel",
+    exportPdf: "PDF",
     categories: {
       food: "Food",
       housing: "Housing",
@@ -106,7 +117,7 @@ const translations = {
   ar: {
     appTitle: "FlowSpend",
     subtitle: "نظام مالي خاص — مسح الإيصالات وتوقعات الإنفاق",
-    taglineScan: "تعرف ضوئي ذكي",
+    taglineScan: "OpenAI للإيصالات",
     taglineForecast: "توقعات الاتجاه",
     taglinePrivate: "بياناتك على جهازك",
     language: "English",
@@ -157,7 +168,8 @@ const translations = {
     expenseType: "مصروف",
     invalidInput: "أدخل وصفا ومبلغا صحيحا.",
     reviewReceipt: "مراجعة الإيصال",
-    receiptReviewHint: "اقترح التعرف الضوئي هذه القيم — عدّل قبل الحفظ.",
+    receiptReviewHintOpenAI: "OpenAI قرأ الإيصال — راجع قبل الحفظ.",
+    receiptReviewHintLocal: "التعرف الضوئي على الجهاز اقترح هذه القيم — عدّل قبل الحفظ.",
     cancel: "إلغاء",
     addToLedger: "إضافة للسجل",
     close: "إغلاق",
@@ -178,6 +190,9 @@ const translations = {
     actual: "فعلي",
     forecast: "توقع",
     chartFootnote: "* التوقع يعتمد على انحدار خطي لمجموع مصروفات آخر ستة أشهر.",
+    exportHint: "تصدير القائمة المصفّاة أدناه.",
+    exportExcel: "Excel",
+    exportPdf: "PDF",
     categories: {
       food: "طعام",
       housing: "سكن",
@@ -263,6 +278,7 @@ function App() {
     date: new Date().toISOString().split("T")[0],
     category: "food",
   });
+  const [receiptParseSource, setReceiptParseSource] = useState("local");
 
   const receiptInputRef = useRef(null);
 
@@ -407,6 +423,15 @@ function App() {
     receiptInputRef.current?.click();
   };
 
+  const applyParsedToDraft = (parsed) => {
+    setReceiptDraft({
+      description: parsed.description,
+      amount: parsed.amount != null ? String(parsed.amount) : "",
+      date: parsed.date,
+      category: categories.includes(parsed.category) ? parsed.category : "other",
+    });
+  };
+
   const handleReceiptFile = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -416,36 +441,43 @@ function App() {
     setReceiptLoading(true);
     setReceiptProgress(0);
     setReceiptError("");
+
     try {
-      const { createWorker } = await import("tesseract.js");
-      const worker = await createWorker("eng", 1, {
-        logger: (m) => {
-          if (m.status === "recognizing text") {
-            setReceiptProgress(typeof m.progress === "number" ? m.progress : 0);
-          }
-        },
-      });
-      const {
-        data: { text },
-      } = await worker.recognize(file);
-      await worker.terminate();
-      const parsed = parseReceiptText(text);
-      setReceiptDraft({
-        description: parsed.description,
-        amount: parsed.amount != null ? String(parsed.amount) : "",
-        date: parsed.date,
-        category: categories.includes(parsed.category) ? parsed.category : "other",
-      });
+      setReceiptProgress(0.2);
+      const ai = await parseReceiptViaOpenAI(file);
+      setReceiptProgress(1);
+      setReceiptParseSource("openai");
+      applyParsedToDraft(ai);
       setReceiptOpen(true);
     } catch {
-      setReceiptError(t.ocrError);
-      setReceiptOpen(true);
-      setReceiptDraft({
-        description: "",
-        amount: "",
-        date: new Date().toISOString().split("T")[0],
-        category: "food",
-      });
+      try {
+        const { createWorker } = await import("tesseract.js");
+        const worker = await createWorker("eng", 1, {
+          logger: (m) => {
+            if (m.status === "recognizing text") {
+              setReceiptProgress(typeof m.progress === "number" ? m.progress : 0);
+            }
+          },
+        });
+        const {
+          data: { text },
+        } = await worker.recognize(file);
+        await worker.terminate();
+        const parsed = parseReceiptText(text);
+        setReceiptParseSource("local");
+        applyParsedToDraft(parsed);
+        setReceiptOpen(true);
+      } catch {
+        setReceiptError(t.ocrError);
+        setReceiptParseSource("local");
+        setReceiptOpen(true);
+        setReceiptDraft({
+          description: "",
+          amount: "",
+          date: new Date().toISOString().split("T")[0],
+          category: "food",
+        });
+      }
     } finally {
       setReceiptLoading(false);
       setReceiptProgress(0);
@@ -473,6 +505,32 @@ function App() {
     setReceiptOpen(false);
   };
 
+  const handleExportExcel = async () => {
+    if (filteredTransactions.length === 0) return;
+    const rows = mapTransactionsForExport(filteredTransactions, t);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const user = safeExportFilenamePart(activeUser);
+    await exportTransactionsExcel({
+      rows,
+      t,
+      filename: `flowspend-${user}-${stamp}.xlsx`,
+    });
+  };
+
+  const handleExportPdf = async () => {
+    if (filteredTransactions.length === 0) return;
+    const rows = mapTransactionsForExport(filteredTransactions, t);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const user = safeExportFilenamePart(activeUser);
+    await exportTransactionsPdf({
+      rows,
+      t,
+      filename: `flowspend-${user}-${stamp}.pdf`,
+      formatCurrency,
+      title: `${t.appTitle} · ${activeUser} · ${stamp}`,
+    });
+  };
+
   return (
     <div className={`app ${dir}`} dir={dir}>
       <input
@@ -498,6 +556,7 @@ function App() {
         error={receiptError}
         t={t}
         categoryKeys={categories}
+        hint={receiptParseSource === "openai" ? t.receiptReviewHintOpenAI : t.receiptReviewHintLocal}
       />
 
       <div className="top-bar">
@@ -621,7 +680,28 @@ function App() {
       </div>
 
       <div className="transactions">
-        <h2>{t.txCount}</h2>
+        <div className="transactions-toolbar">
+          <h2>{t.txCount}</h2>
+          <div className="export-actions">
+            <span className="export-hint">{t.exportHint}</span>
+            <button
+              type="button"
+              className="export-btn export-btn-excel"
+              disabled={filteredTransactions.length === 0}
+              onClick={handleExportExcel}
+            >
+              {t.exportExcel}
+            </button>
+            <button
+              type="button"
+              className="export-btn export-btn-pdf"
+              disabled={filteredTransactions.length === 0}
+              onClick={handleExportPdf}
+            >
+              {t.exportPdf}
+            </button>
+          </div>
+        </div>
         <div className="filters advanced-filters">
           <select value={period} onChange={(e) => setPeriod(e.target.value)}>
             <option value="all">{t.allTime}</option>
