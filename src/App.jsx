@@ -47,7 +47,8 @@ const translations = {
     txCount: "Transactions",
     avgExpense: "Avg Expense",
     addTransaction: "Add Transaction",
-    scanReceipt: "Scan receipt",
+    scanReceiptCamera: "Camera",
+    scanReceiptUpload: "Upload photo",
     scanning: "Reading receipt…",
     description: "Description",
     amount: "Amount",
@@ -136,7 +137,8 @@ const translations = {
     txCount: "عدد العمليات",
     avgExpense: "متوسط المصروف",
     addTransaction: "إضافة عملية",
-    scanReceipt: "مسح إيصال",
+    scanReceiptCamera: "كاميرا",
+    scanReceiptUpload: "رفع صورة",
     scanning: "جاري قراءة الإيصال…",
     description: "الوصف",
     amount: "المبلغ",
@@ -281,6 +283,7 @@ function App() {
   const [receiptParseSource, setReceiptParseSource] = useState("local");
 
   const receiptInputRef = useRef(null);
+  const receiptCameraInputRef = useRef(null);
 
   const [period, setPeriod] = useState("monthly");
   const [filterType, setFilterType] = useState("all");
@@ -419,8 +422,12 @@ function App() {
     setTransactions((previous) => previous.filter((transaction) => transaction.id !== id));
   };
 
-  const triggerReceiptPick = () => {
+  const triggerReceiptUpload = () => {
     receiptInputRef.current?.click();
+  };
+
+  const triggerReceiptCamera = () => {
+    receiptCameraInputRef.current?.click();
   };
 
   const applyParsedToDraft = (parsed) => {
@@ -542,6 +549,16 @@ function App() {
         tabIndex={-1}
         onChange={handleReceiptFile}
       />
+      <input
+        ref={receiptCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="visually-hidden"
+        aria-hidden
+        tabIndex={-1}
+        onChange={handleReceiptFile}
+      />
 
       <ReceiptScanModal
         open={receiptOpen}
@@ -655,9 +672,26 @@ function App() {
       <div className="add-transaction">
         <div className="section-head">
           <h2>{t.addTransaction}</h2>
-          <button type="button" className="scan-receipt-btn" onClick={triggerReceiptPick} disabled={receiptLoading}>
-            {receiptLoading ? t.scanning : t.scanReceipt}
-          </button>
+          <div className="scan-actions">
+            <button
+              type="button"
+              className="scan-receipt-btn scan-camera-btn"
+              onClick={triggerReceiptCamera}
+              disabled={receiptLoading}
+              aria-label={t.scanReceiptCamera}
+            >
+              {receiptLoading ? t.scanning : t.scanReceiptCamera}
+            </button>
+            <button
+              type="button"
+              className="scan-receipt-btn scan-upload-btn"
+              onClick={triggerReceiptUpload}
+              disabled={receiptLoading}
+              aria-label={t.scanReceiptUpload}
+            >
+              {receiptLoading ? t.scanning : t.scanReceiptUpload}
+            </button>
+          </div>
         </div>
         <form onSubmit={handleSubmit}>
           <input type="text" placeholder={t.description} value={description} onChange={(e) => setDescription(e.target.value)} />

@@ -722,6 +722,25 @@ th {
   cursor: wait;
 }
 
+.scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.scan-upload-btn {
+  background: var(--surface-muted);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.scan-upload-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+}
+
 .insights-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
