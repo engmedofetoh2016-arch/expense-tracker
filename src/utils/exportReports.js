@@ -2,13 +2,13 @@
  * @param {Array<{ date: string, description: string, category: string, type: string, amount: number, id?: number }>} transactions
  * @param {Record<string, string>} t translations object with categories map
  */
-export function mapTransactionsForExport(transactions, t) {
+export function mapTransactionsForExport(transactions, t, categoryLabels = {}) {
   return transactions.map((tx) => ({
     date: tx.date,
     description: tx.description,
-    category: t.categories[tx.category] ?? tx.category,
+    category: categoryLabels[tx.category] ?? t.categories?.[tx.category] ?? tx.category,
     typeLabel: tx.type === "income" ? t.incomeType : t.expenseType,
-    amount: Number(tx.amount),
+    amount: Number(tx.amountBase ?? tx.amount),
     kind: tx.type,
   }));
 }

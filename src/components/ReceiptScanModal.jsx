@@ -6,12 +6,16 @@ export default function ReceiptScanModal({
   draft,
   onChangeDraft,
   onConfirm,
+  onConfirmForce,
   loading,
   progress,
   error,
   t,
-  categoryKeys,
+  categories,
+  currencies,
   hint,
+  previewUrl,
+  duplicateWarning,
 }) {
   const firstField = useRef(null);
   useEffect(() => {
@@ -34,6 +38,23 @@ export default function ReceiptScanModal({
           </button>
         </div>
         <p className="modal-hint">{hint ?? t.receiptReviewHintLocal}</p>
+        {previewUrl ? <img src={previewUrl} alt="" className="modal-receipt-preview" /> : null}
+        {duplicateWarning?.type === "transaction" ? (
+          <div className="duplicate-banner">
+            <strong>{t.duplicateTxTitle}</strong>
+            <span>{t.duplicateTxBody}</span>
+            {duplicateWarning.detail ? (
+              <span className="currency-note">
+                {duplicateWarning.detail.description} · {duplicateWarning.detail.amount} · {duplicateWarning.detail.date}
+              </span>
+            ) : null}
+            <div className="duplicate-actions">
+              <button type="button" className="duplicate-force-btn" onClick={onConfirmForce} disabled={loading}>
+                {t.saveAnyway}
+              </button>
+            </div>
+          </div>
+        ) : null}
         {loading ? (
           <div className="ocr-progress">
             <div className="ocr-progress-bar" style={{ width: `${Math.min(100, Math.round(progress * 100))}%` }} />
@@ -63,6 +84,20 @@ export default function ReceiptScanModal({
             />
           </label>
           <label>
+            <span>{t.currency}</span>
+            <select
+              value={draft.currency || "USD"}
+              onChange={(e) => onChangeDraft({ ...draft, currency: e.target.value })}
+              disabled={loading}
+            >
+              {currencies.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.code}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             <span>{t.date}</span>
             <input
               type="date"
@@ -78,9 +113,9 @@ export default function ReceiptScanModal({
               onChange={(e) => onChangeDraft({ ...draft, category: e.target.value })}
               disabled={loading}
             >
-              {categoryKeys.map((key) => (
-                <option key={key} value={key}>
-                  {t.categories[key]}
+              {categories.map((item) => (
+                <option key={item.slug} value={item.slug}>
+                  {item.label}
                 </option>
               ))}
             </select>

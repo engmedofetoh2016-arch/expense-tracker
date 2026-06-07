@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  name         String
+  baseCurrency String        @default("USD")
+  createdAt    DateTime      @default(now())
+  categories   Category[]
+  transactions Transaction[]
+  receipts     ReceiptFile[]
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug      String
+  label     String
+  color     String   @default("#6366f1")
+  createdAt DateTime @default(now())
+
+  @@unique([userId, slug])
+  @@index([userId])
+}
+
+model Transaction {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  description String
+  amount      Float
+  currency    String       @default("USD")
+  amountBase  Float    @default(0)
+  type        String
+  category    String
+  date        String
+  createdAt   DateTime     @default(now())
+  receipt     ReceiptFile?
+
+  @@index([userId])
+  @@index([userId, date])
+  @@index([userId, category])
+  @@index([userId, date, amount])
+}
+
+model ReceiptFile {
+  id            String       @id @default(uuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        String       @default("unsorted")
+  storageName   String
+  originalName  String
+  mimeType      String
+  sizeBytes     Int
+  contentHash   String?
+  parseSource   String?
+  description   String?
+  amount        Float?
+  currency      String?
+  date          String?
+  category      String?
+  transactionId String?      @unique
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  createdAt     DateTime     @default(now())
+
+  @@index([userId, status])
+  @@index([userId, contentHash])
+}

@@ -33,7 +33,7 @@ export function buildForecastSeries(transactions, locale) {
   const byMonth = new Map();
   for (const tx of expenses) {
     const key = tx.date.slice(0, 7);
-    byMonth.set(key, (byMonth.get(key) || 0) + Number(tx.amount));
+    byMonth.set(key, (byMonth.get(key) || 0) + Number(tx.amountBase ?? tx.amount));
   }
 
   const now = new Date();

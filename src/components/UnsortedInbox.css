@@ -1,0 +1,149 @@
+.unsorted-inbox {
+  margin-bottom: 28px;
+  padding: 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.unsorted-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.unsorted-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.unsorted-sub {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  flex: 1 1 220px;
+}
+
+.unsorted-count {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--indigo-soft);
+  color: var(--indigo);
+}
+
+.unsorted-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.unsorted-card {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.unsorted-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.unsorted-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.unsorted-meta strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unsorted-meta span {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.unsorted-category {
+  font-size: 0.75rem !important;
+  font-weight: 700;
+  color: var(--indigo) !important;
+}
+
+.unsorted-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.unsorted-review-btn,
+.unsorted-delete-btn {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.unsorted-review-btn {
+  border: none;
+  background: linear-gradient(135deg, #0d9488, #0891b2);
+  color: #fff;
+}
+
+.unsorted-delete-btn {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.unsorted-review-btn:disabled,
+.unsorted-delete-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.receipt-link-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--indigo);
+}
+
+@media (max-width: 640px) {
+  .unsorted-card {
+    grid-template-columns: 56px 1fr;
+  }
+
+  .unsorted-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+
+  .unsorted-thumb {
+    width: 56px;
+    height: 56px;
+  }
+}

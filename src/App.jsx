@@ -2,27 +2,63 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import InsightsChart from "./components/InsightsChart.jsx";
 import ReceiptScanModal from "./components/ReceiptScanModal.jsx";
-import { parseReceiptViaOpenAI } from "./api/receiptClient.js";
+import UnsortedInbox from "./components/UnsortedInbox.jsx";
+import CategoryManager from "./components/CategoryManager.jsx";
+import AuthPage from "./components/AuthPage.jsx";
+import {
+  confirmReceipt,
+  deleteReceipt,
+  fetchUnsortedReceipts,
+  receiptImageUrl,
+  updateReceiptDraft,
+  uploadReceipt,
+} from "./api/receiptsClient.js";
+import {
+  createCategory,
+  deleteCategory,
+  fetchCategories,
+} from "./api/categoriesClient.js";
+import {
+  bulkImportTransactions,
+  createTransaction,
+  deleteTransaction,
+  downloadAllTransactionsCsv,
+  fetchTransactions,
+} from "./api/transactionsClient.js";
+import { useAuth } from "./context/useAuth.js";
+import SettingsModal from "./components/SettingsModal.jsx";
+import {
+  fetchSupportedCurrencies,
+  fetchSettings,
+  updateSettings,
+} from "./api/settingsClient.js";
+import { downloadFullBackup, restoreFullBackup } from "./api/backupClient.js";
+import { formatMoney, transactionAmountBase } from "./utils/money.js";
 import {
   exportTransactionsExcel,
   exportTransactionsPdf,
   mapTransactionsForExport,
   safeExportFilenamePart,
 } from "./utils/exportReports.js";
+import {
+  exportFilteredCsv,
+  parseTransactionsCsv,
+} from "./utils/csvTransactions.js";
 import { parseReceiptText } from "./utils/receiptParse.js";
 
-const categories = ["food", "housing", "utilities", "transport", "entertainment", "salary", "other"];
+function resolveCategoryFromParsed(parsedCategory, categoryList) {
+  const normalized = typeof parsedCategory === "string" ? parsedCategory.trim().toLowerCase() : "";
+  const slugs = new Set(categoryList.map((item) => item.slug));
+  if (slugs.has(normalized)) return normalized;
+  const byLabel = categoryList.find((item) => item.label.trim().toLowerCase() === normalized);
+  if (byLabel) return byLabel.slug;
+  if (slugs.has("other")) return "other";
+  return categoryList[0]?.slug ?? "other";
+}
 
-const initialTransactions = [
-  { id: 1, description: "Salary", amount: 5000, type: "income", category: "salary", date: "2026-03-01" },
-  { id: 2, description: "Rent", amount: 1200, type: "expense", category: "housing", date: "2026-03-02" },
-  { id: 3, description: "Groceries", amount: 150, type: "expense", category: "food", date: "2026-03-03" },
-  { id: 4, description: "Freelance Work", amount: 800, type: "income", category: "salary", date: "2026-03-05" },
-  { id: 5, description: "Electric Bill", amount: 95, type: "expense", category: "utilities", date: "2026-03-06" },
-  { id: 6, description: "Dinner Out", amount: 65, type: "expense", category: "food", date: "2026-03-07" },
-  { id: 7, description: "Gas", amount: 45, type: "expense", category: "transport", date: "2026-03-08" },
-  { id: 8, description: "Netflix", amount: 15, type: "expense", category: "entertainment", date: "2026-03-10" },
-];
+function defaultCategorySlug(categoryList) {
+  return categoryList.find((item) => item.slug === "food")?.slug ?? categoryList[0]?.slug ?? "other";
+}
 
 const translations = {
   en: {
@@ -30,17 +66,10 @@ const translations = {
     subtitle: "Private finance OS — smart receipt capture and spend forecasts",
     taglineScan: "OpenAI receipt parse",
     taglineForecast: "Trend forecasts",
-    taglinePrivate: "Your data stays on-device",
-    language: "العربية",
-    themeDark: "Dark",
-    themeLight: "Light",
-    user: "User",
-    users: "Users",
-    userPlaceholder: "Enter your name",
-    saveUser: "Add/Switch User",
-    currentUser: "Current User",
-    noUsers: "No users yet",
-    privacyNote: "Each profile only sees its own transactions on this device.",
+    taglinePrivate: "Private account per user",
+    signedInAs: "Signed in as",
+    logout: "Log out",
+    loadingData: "Loading your ledger…",
     income: "Income",
     expenses: "Expenses",
     balance: "Balance",
@@ -105,6 +134,42 @@ const translations = {
     exportHint: "Export the filtered list below.",
     exportExcel: "Excel",
     exportPdf: "PDF",
+    language: "العربية",
+    themeDark: "Dark",
+    themeLight: "Light",
+    saveFailed: "Could not save. Try again.",
+    deleteFailed: "Could not delete. Try again.",
+    manageCategories: "Manage categories",
+    categoriesHint: "Add your own categories. Slugs are used in CSV import/export.",
+    newCategoryPlaceholder: "New category name",
+    addCategory: "Add category",
+    pickColor: "Pick a color",
+    importCsv: "Import CSV",
+    exportCsvFiltered: "CSV (filtered)",
+    exportCsvAll: "CSV (all)",
+    backupJson: "Backup JSON",
+    restoreJson: "Restore JSON",
+    importSuccess: "Imported {count} transactions.",
+    importFailed: "Import failed.",
+    categoryFailed: "Category action failed.",
+    unsortedTitle: "Unsorted receipts",
+    unsortedSubtitle: "Saved on the server — review and add to your ledger when ready.",
+    unsortedEmpty: "No pending receipts. Scan or upload to fill this inbox.",
+    amountPending: "Amount pending",
+    viewReceipt: "View",
+    receiptColumn: "Receipt",
+    settingsTitle: "Settings",
+    settingsHint: "Your base currency is used for balance, charts, and converted totals.",
+    baseCurrency: "Base currency",
+    saveSettings: "Save settings",
+    currency: "Currency",
+    duplicateReceiptTitle: "Duplicate receipt image",
+    duplicateReceiptBody: "This exact image was uploaded before.",
+    duplicateTxTitle: "Possible duplicate transaction",
+    duplicateTxBody: "A similar entry already exists in your ledger.",
+    saveAnyway: "Save anyway",
+    backupFull: "Full backup",
+    convertedNote: "converted",
     categories: {
       food: "Food",
       housing: "Housing",
@@ -120,17 +185,10 @@ const translations = {
     subtitle: "نظام مالي خاص — مسح الإيصالات وتوقعات الإنفاق",
     taglineScan: "OpenAI للإيصالات",
     taglineForecast: "توقعات الاتجاه",
-    taglinePrivate: "بياناتك على جهازك",
-    language: "English",
-    themeDark: "داكن",
-    themeLight: "فاتح",
-    user: "المستخدم",
-    users: "المستخدمون",
-    userPlaceholder: "ادخل اسمك",
-    saveUser: "إضافة/تبديل المستخدم",
-    currentUser: "المستخدم الحالي",
-    noUsers: "لا يوجد مستخدمون بعد",
-    privacyNote: "كل ملف يرى معاملاته فقط على هذا الجهاز.",
+    taglinePrivate: "حساب خاص لكل مستخدم",
+    signedInAs: "مسجل الدخول كـ",
+    logout: "تسجيل الخروج",
+    loadingData: "جاري تحميل السجل…",
     income: "الدخل",
     expenses: "المصروفات",
     balance: "الرصيد",
@@ -195,6 +253,42 @@ const translations = {
     exportHint: "تصدير القائمة المصفّاة أدناه.",
     exportExcel: "Excel",
     exportPdf: "PDF",
+    language: "English",
+    themeDark: "داكن",
+    themeLight: "فاتح",
+    saveFailed: "تعذر الحفظ. حاول مرة أخرى.",
+    deleteFailed: "تعذر الحذف. حاول مرة أخرى.",
+    manageCategories: "إدارة الفئات",
+    categoriesHint: "أضف فئاتك. تُستخدم الرموز في استيراد/تصدير CSV.",
+    newCategoryPlaceholder: "اسم الفئة الجديدة",
+    addCategory: "إضافة فئة",
+    pickColor: "اختر لونًا",
+    importCsv: "استيراد CSV",
+    exportCsvFiltered: "CSV (مصفّى)",
+    exportCsvAll: "CSV (الكل)",
+    backupJson: "نسخ JSON",
+    restoreJson: "استعادة JSON",
+    importSuccess: "تم استيراد {count} عملية.",
+    importFailed: "فشل الاستيراد.",
+    categoryFailed: "فشلت عملية الفئة.",
+    unsortedTitle: "إيصالات غير مرتبة",
+    unsortedSubtitle: "محفوظة على الخادم — راجعها وأضفها للسجل عندما تكون جاهزًا.",
+    unsortedEmpty: "لا إيصالات معلقة. امسح أو ارفع لملء صندوق الوارد.",
+    amountPending: "المبلغ معلق",
+    viewReceipt: "عرض",
+    receiptColumn: "إيصال",
+    settingsTitle: "الإعدادات",
+    settingsHint: "عملتك الأساسية تُستخدم للرصيد والرسوم البيانية والمجاميع المحوّلة.",
+    baseCurrency: "العملة الأساسية",
+    saveSettings: "حفظ الإعدادات",
+    currency: "العملة",
+    duplicateReceiptTitle: "صورة إيصال مكررة",
+    duplicateReceiptBody: "تم رفع هذه الصورة من قبل.",
+    duplicateTxTitle: "معاملة possibly مكررة",
+    duplicateTxBody: "يوجد إدخال مشابه في سجلك.",
+    saveAnyway: "حفظ على أي حال",
+    backupFull: "نسخة كاملة",
+    convertedNote: "محوّل",
     categories: {
       food: "طعام",
       housing: "سكن",
@@ -207,39 +301,10 @@ const translations = {
   },
 };
 
-function getSavedUser() {
-  return localStorage.getItem("finance_active_user") || "default";
-}
-
 function getSavedTheme() {
   const v = localStorage.getItem("finance_theme");
   if (v === "dark" || v === "light") return v;
   return "light";
-}
-
-function persistTransactionsForUser(user, list) {
-  localStorage.setItem(`finance_transactions_${user}`, JSON.stringify(list));
-}
-
-function getTransactionsForUser(user) {
-  const storageKey = `finance_transactions_${user}`;
-  const savedTransactions = localStorage.getItem(storageKey);
-  if (savedTransactions) {
-    return JSON.parse(savedTransactions);
-  }
-  if (user === "default") {
-    return initialTransactions.map((transaction) => ({ ...transaction }));
-  }
-  return [];
-}
-
-function getSavedUsers() {
-  const savedUsers = localStorage.getItem("finance_users");
-  if (!savedUsers) {
-    return ["default"];
-  }
-  const parsed = JSON.parse(savedUsers);
-  return Array.isArray(parsed) && parsed.length > 0 ? parsed : ["default"];
 }
 
 function isInPeriod(transactionDate, period) {
@@ -257,12 +322,24 @@ function isInPeriod(transactionDate, period) {
 }
 
 function App() {
+  const { user, loading: authLoading, logout } = useAuth();
   const [theme, setTheme] = useState(() => getSavedTheme());
   const [lang, setLang] = useState("en");
-  const [activeUser, setActiveUser] = useState(() => getSavedUser());
-  const [userInput, setUserInput] = useState(() => getSavedUser());
-  const [users, setUsers] = useState(() => getSavedUsers());
-  const [transactions, setTransactions] = useState(() => getTransactionsForUser(getSavedUser()));
+  const [transactions, setTransactions] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [categoryBusy, setCategoryBusy] = useState(false);
+  const [categoryError, setCategoryError] = useState("");
+  const [importMessage, setImportMessage] = useState("");
+  const [baseCurrency, setBaseCurrency] = useState("USD");
+  const [supportedCurrencies, setSupportedCurrencies] = useState([{ code: "USD", label: "US Dollar" }]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [pendingReceiptFile, setPendingReceiptFile] = useState(null);
+  const [txCurrency, setTxCurrency] = useState("USD");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [type, setType] = useState("expense");
@@ -279,11 +356,17 @@ function App() {
     amount: "",
     date: new Date().toISOString().split("T")[0],
     category: "food",
+    currency: "USD",
   });
   const [receiptParseSource, setReceiptParseSource] = useState("local");
+  const [activeReceiptId, setActiveReceiptId] = useState(null);
+  const [unsortedReceipts, setUnsortedReceipts] = useState([]);
+  const [receiptBusyId, setReceiptBusyId] = useState(null);
 
   const receiptInputRef = useRef(null);
   const receiptCameraInputRef = useRef(null);
+  const csvImportRef = useRef(null);
+  const jsonImportRef = useRef(null);
 
   const [period, setPeriod] = useState("monthly");
   const [filterType, setFilterType] = useState("all");
@@ -298,12 +381,26 @@ function App() {
   const dir = lang === "ar" ? "rtl" : "ltr";
   const isDark = theme === "dark";
 
-  const formatCurrency = (value) =>
-    new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 2,
-    }).format(value);
+  const formatCurrency = (value) => formatMoney(value, baseCurrency, locale);
+
+  const categoryLabels = useMemo(() => {
+    const map = {};
+    for (const item of categories) {
+      map[item.slug] = t.categories[item.slug] ?? item.label;
+    }
+    return map;
+  }, [categories, t.categories]);
+
+  const defaultCategory = useMemo(() => defaultCategorySlug(categories), [categories]);
+
+  const refreshUnsorted = async () => {
+    try {
+      const rows = await fetchUnsortedReceipts();
+      setUnsortedReceipts(rows);
+    } catch {
+      setUnsortedReceipts([]);
+    }
+  };
 
   const clearFilters = () => {
     setPeriod("monthly");
@@ -321,37 +418,50 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    persistTransactionsForUser(activeUser, transactions);
-  }, [transactions, activeUser]);
-
-  useEffect(() => {
-    localStorage.setItem("finance_users", JSON.stringify(users));
-  }, [users]);
-
-  const handleSaveUser = () => {
-    const normalizedUser = userInput.trim().toLowerCase();
-    if (!normalizedUser) {
+    if (!user) {
+      setTransactions([]);
+      setCategories([]);
       return;
     }
-    if (normalizedUser !== activeUser) {
-      persistTransactionsForUser(activeUser, transactions);
-    }
-    setActiveUser(normalizedUser);
-    setTransactions(getTransactionsForUser(normalizedUser));
-    setUsers((previous) => (previous.includes(normalizedUser) ? previous : [...previous, normalizedUser]));
-    localStorage.setItem("finance_active_user", normalizedUser);
-  };
 
-  const handleSelectUser = (user) => {
-    if (user === activeUser) {
-      return;
-    }
-    persistTransactionsForUser(activeUser, transactions);
-    setActiveUser(user);
-    setUserInput(user);
-    setTransactions(getTransactionsForUser(user));
-    localStorage.setItem("finance_active_user", user);
-  };
+    let cancelled = false;
+    setDataLoading(true);
+    Promise.all([
+      fetchTransactions(),
+      fetchCategories(),
+      fetchUnsortedReceipts(),
+      fetchSettings(),
+      fetchSupportedCurrencies(),
+    ])
+      .then(([rows, cats, inbox, settings, currencyList]) => {
+        if (cancelled) return;
+        setTransactions(rows);
+        setCategories(cats);
+        setUnsortedReceipts(inbox);
+        setBaseCurrency(settings?.baseCurrency || user.baseCurrency || "USD");
+        setTxCurrency(settings?.baseCurrency || user.baseCurrency || "USD");
+        setSupportedCurrencies(currencyList);
+        const fallback = defaultCategorySlug(cats);
+        setCategory((current) => (cats.some((item) => item.slug === current) ? current : fallback));
+        setReceiptDraft((current) => ({
+          ...current,
+          category: cats.some((item) => item.slug === current.category) ? current.category : fallback,
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTransactions([]);
+          setCategories([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDataLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const filteredTransactions = useMemo(() => {
     const list = transactions.filter((transaction) => {
@@ -375,10 +485,10 @@ function App() {
   const summary = useMemo(() => {
     const income = filteredTransactions
       .filter((transaction) => transaction.type === "income")
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
+      .reduce((sum, transaction) => sum + transactionAmountBase(transaction), 0);
     const expenses = filteredTransactions
       .filter((transaction) => transaction.type === "expense")
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
+      .reduce((sum, transaction) => sum + transactionAmountBase(transaction), 0);
     const expenseCount = filteredTransactions.filter((transaction) => transaction.type === "expense").length;
 
     return {
@@ -390,7 +500,7 @@ function App() {
     };
   }, [filteredTransactions]);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     const parsedAmount = Number(amount);
     if (!description.trim() || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -398,28 +508,42 @@ function App() {
       return;
     }
 
-    setTransactions((previous) => [
-      {
-        id: Date.now(),
+    try {
+      const created = await createTransaction({
         description: description.trim(),
         amount: parsedAmount,
         type,
         category,
         date,
-      },
-      ...previous,
-    ]);
-
-    setDescription("");
-    setAmount("");
-    setType("expense");
-    setCategory("food");
-    setDate(new Date().toISOString().split("T")[0]);
-    setError("");
+        currency: txCurrency,
+        force: duplicateWarning?.type === "transaction" ? true : undefined,
+      });
+      setTransactions((previous) => [created, ...previous]);
+      setDescription("");
+      setAmount("");
+      setType("expense");
+      setCategory(defaultCategory);
+      setTxCurrency(baseCurrency);
+      setDate(new Date().toISOString().split("T")[0]);
+      setDuplicateWarning(null);
+      setError("");
+    } catch (err) {
+      if (err?.code === "DUPLICATE") {
+        setDuplicateWarning({ type: "transaction", detail: err.duplicate });
+        setError(t.duplicateTxBody);
+        return;
+      }
+      setError(t.saveFailed);
+    }
   };
 
-  const handleDelete = (id) => {
-    setTransactions((previous) => previous.filter((transaction) => transaction.id !== id));
+  const handleDelete = async (id) => {
+    try {
+      await deleteTransaction(id);
+      setTransactions((previous) => previous.filter((transaction) => transaction.id !== id));
+    } catch {
+      setError(t.deleteFailed);
+    }
   };
 
   const triggerReceiptUpload = () => {
@@ -430,33 +554,63 @@ function App() {
     receiptCameraInputRef.current?.click();
   };
 
-  const applyParsedToDraft = (parsed) => {
-    setReceiptDraft({
-      description: parsed.description,
-      amount: parsed.amount != null ? String(parsed.amount) : "",
-      date: parsed.date,
-      category: categories.includes(parsed.category) ? parsed.category : "other",
-    });
+  const closeReceiptModal = () => {
+    if (receiptLoading) return;
+    setReceiptOpen(false);
+    setDuplicateWarning(null);
+    setPendingReceiptFile(null);
+    refreshUnsorted();
   };
 
-  const handleReceiptFile = async (event) => {
+  const openDraftFromReceipt = (receipt, warnings = {}) => {
+    setActiveReceiptId(receipt.id);
+    setReceiptParseSource(receipt.parseSource || "openai");
+    setReceiptDraft({
+      description: receipt.description || "",
+      amount: receipt.amount != null ? String(receipt.amount) : "",
+      date: receipt.date || new Date().toISOString().split("T")[0],
+      category: receipt.category
+        ? resolveCategoryFromParsed(receipt.category, categories)
+        : defaultCategory,
+      currency: receipt.currency || baseCurrency,
+    });
+    if (warnings.duplicateTransaction) {
+      setDuplicateWarning({ type: "transaction", detail: warnings.duplicateTransaction });
+    } else {
+      setDuplicateWarning(null);
+    }
+    setReceiptOpen(true);
+  };
+
+  const uploadReceiptFile = async (file, options = {}) => {
+    const { receipt, warnings } = await uploadReceipt(file, options);
+    openDraftFromReceipt(receipt, warnings);
+    await refreshUnsorted();
+    return receipt;
+  };
+
+  const handleReceiptFile = async (event, { force = false } = {}) => {
     const file = event.target.files?.[0];
-    event.target.value = "";
+    if (event.target) event.target.value = "";
     if (!file || !file.type.startsWith("image/")) {
       return;
     }
     setReceiptLoading(true);
     setReceiptProgress(0);
     setReceiptError("");
+    setActiveReceiptId(null);
+    setPendingReceiptFile(file);
 
     try {
-      setReceiptProgress(0.2);
-      const ai = await parseReceiptViaOpenAI(file);
+      setReceiptProgress(0.35);
+      await uploadReceiptFile(file, { force });
       setReceiptProgress(1);
-      setReceiptParseSource("openai");
-      applyParsedToDraft(ai);
-      setReceiptOpen(true);
-    } catch {
+    } catch (err) {
+      if (err?.code === "DUPLICATE_RECEIPT") {
+        setDuplicateWarning({ type: "receipt", detail: err.duplicateReceipt });
+        setReceiptError(t.duplicateReceiptBody);
+        return;
+      }
       try {
         const { createWorker } = await import("tesseract.js");
         const worker = await createWorker("eng", 1, {
@@ -470,20 +624,33 @@ function App() {
           data: { text },
         } = await worker.recognize(file);
         await worker.terminate();
-        const parsed = parseReceiptText(text);
-        setReceiptParseSource("local");
-        applyParsedToDraft(parsed);
-        setReceiptOpen(true);
-      } catch {
-        setReceiptError(t.ocrError);
-        setReceiptParseSource("local");
-        setReceiptOpen(true);
-        setReceiptDraft({
-          description: "",
-          amount: "",
-          date: new Date().toISOString().split("T")[0],
-          category: "food",
-        });
+        const parsed = { ...parseReceiptText(text), currency: baseCurrency };
+        await uploadReceiptFile(file, { parsed, parseSource: "local", force });
+      } catch (innerErr) {
+        if (innerErr?.code === "DUPLICATE_RECEIPT") {
+          setDuplicateWarning({ type: "receipt", detail: innerErr.duplicateReceipt });
+          setReceiptError(t.duplicateReceiptBody);
+          return;
+        }
+        try {
+          await uploadReceiptFile(
+            file,
+            {
+              parsed: {
+                description: "",
+                amount: null,
+                date: new Date().toISOString().split("T")[0],
+                category: defaultCategory,
+                currency: baseCurrency,
+              },
+              parseSource: "none",
+              force,
+            },
+          );
+          setReceiptError(t.ocrError);
+        } catch (finalErr) {
+          setReceiptError(finalErr instanceof Error ? finalErr.message : t.ocrError);
+        }
       }
     } finally {
       setReceiptLoading(false);
@@ -491,52 +658,246 @@ function App() {
     }
   };
 
-  const handleReceiptConfirm = () => {
+  const handleForceDuplicateReceipt = async () => {
+    if (!pendingReceiptFile) return;
+    const fakeEvent = { target: { files: [pendingReceiptFile], value: "" } };
+    await handleReceiptFile(fakeEvent, { force: true });
+  };
+
+  const handleReviewInboxReceipt = (receipt) => {
+    setActiveReceiptId(receipt.id);
+    setReceiptParseSource(receipt.parseSource || "local");
+    setReceiptDraft({
+      description: receipt.description || "",
+      amount: receipt.amount != null ? String(receipt.amount) : "",
+      date: receipt.date || new Date().toISOString().split("T")[0],
+      category: receipt.category
+        ? resolveCategoryFromParsed(receipt.category, categories)
+        : defaultCategory,
+      currency: receipt.currency || baseCurrency,
+    });
+    setReceiptError("");
+    setDuplicateWarning(null);
+    setReceiptOpen(true);
+  };
+
+  const handleDeleteInboxReceipt = async (id) => {
+    setReceiptBusyId(id);
+    try {
+      await deleteReceipt(id);
+      setUnsortedReceipts((previous) => previous.filter((item) => item.id !== id));
+      if (activeReceiptId === id) {
+        setReceiptOpen(false);
+        setActiveReceiptId(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.deleteFailed);
+    } finally {
+      setReceiptBusyId(null);
+    }
+  };
+
+  const handleReceiptConfirm = async (force = false) => {
     const parsedAmount = Number(receiptDraft.amount);
     if (!receiptDraft.description.trim() || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
       setReceiptError(t.invalidInput);
       return;
     }
     setReceiptError("");
-    setTransactions((previous) => [
-      {
-        id: Date.now(),
-        description: receiptDraft.description.trim(),
-        amount: parsedAmount,
-        type: "expense",
-        category: receiptDraft.category,
-        date: receiptDraft.date,
-      },
-      ...previous,
-    ]);
-    setReceiptOpen(false);
+    try {
+      if (activeReceiptId) {
+        await updateReceiptDraft(activeReceiptId, {
+          description: receiptDraft.description.trim(),
+          amount: parsedAmount,
+          category: receiptDraft.category,
+          date: receiptDraft.date,
+          currency: receiptDraft.currency,
+          parseSource: receiptParseSource,
+        });
+        const result = await confirmReceipt(
+          activeReceiptId,
+          {
+            description: receiptDraft.description.trim(),
+            amount: parsedAmount,
+            type: "expense",
+            category: receiptDraft.category,
+            date: receiptDraft.date,
+            currency: receiptDraft.currency,
+          },
+          { force: force || duplicateWarning?.type === "transaction" },
+        );
+        setTransactions((previous) => [result.transaction, ...previous]);
+        setUnsortedReceipts((previous) => previous.filter((item) => item.id !== activeReceiptId));
+        setActiveReceiptId(null);
+        setDuplicateWarning(null);
+      } else {
+        const created = await createTransaction({
+          description: receiptDraft.description.trim(),
+          amount: parsedAmount,
+          type: "expense",
+          category: receiptDraft.category,
+          date: receiptDraft.date,
+          currency: receiptDraft.currency,
+        });
+        setTransactions((previous) => [created, ...previous]);
+      }
+      setReceiptOpen(false);
+    } catch (err) {
+      if (err?.code === "DUPLICATE") {
+        setDuplicateWarning({ type: "transaction", detail: err.duplicate });
+        setReceiptError(t.duplicateTxBody);
+        return;
+      }
+      setReceiptError(t.saveFailed);
+    }
   };
 
   const handleExportExcel = async () => {
     if (filteredTransactions.length === 0) return;
-    const rows = mapTransactionsForExport(filteredTransactions, t);
+    const rows = mapTransactionsForExport(filteredTransactions, t, categoryLabels);
     const stamp = new Date().toISOString().slice(0, 10);
-    const user = safeExportFilenamePart(activeUser);
+    const userLabel = safeExportFilenamePart(user?.name || "user");
     await exportTransactionsExcel({
       rows,
       t,
-      filename: `flowspend-${user}-${stamp}.xlsx`,
+      filename: `flowspend-${userLabel}-${stamp}.xlsx`,
     });
   };
 
   const handleExportPdf = async () => {
     if (filteredTransactions.length === 0) return;
-    const rows = mapTransactionsForExport(filteredTransactions, t);
+    const rows = mapTransactionsForExport(filteredTransactions, t, categoryLabels);
     const stamp = new Date().toISOString().slice(0, 10);
-    const user = safeExportFilenamePart(activeUser);
+    const userLabel = safeExportFilenamePart(user?.name || "user");
     await exportTransactionsPdf({
       rows,
       t,
-      filename: `flowspend-${user}-${stamp}.pdf`,
+      filename: `flowspend-${userLabel}-${stamp}.pdf`,
       formatCurrency,
-      title: `${t.appTitle} · ${activeUser} · ${stamp}`,
+      title: `${t.appTitle} · ${user?.name || "user"} · ${stamp}`,
     });
   };
+
+  const handleExportCsvFiltered = () => {
+    if (filteredTransactions.length === 0) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const userLabel = safeExportFilenamePart(user?.name || "user");
+    exportFilteredCsv(filteredTransactions, `flowspend-${userLabel}-${stamp}.csv`);
+  };
+
+  const handleExportCsvAll = async () => {
+    try {
+      await downloadAllTransactionsCsv();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.importFailed);
+    }
+  };
+
+  const handleBackupJson = async () => {
+    try {
+      await downloadFullBackup();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.importFailed);
+    }
+  };
+
+  const handleCsvImport = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const rows = parseTransactionsCsv(text);
+      if (rows.length === 0) {
+        setError(t.importFailed);
+        return;
+      }
+      const result = await bulkImportTransactions(rows);
+      setTransactions(result.transactions);
+      setImportMessage(t.importSuccess.replace("{count}", String(result.imported)));
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.importFailed);
+    }
+  };
+
+  const handleJsonRestore = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      const result = await restoreFullBackup(backup);
+      setTransactions(result.transactions);
+      if (backup.user?.baseCurrency) {
+        setBaseCurrency(backup.user.baseCurrency);
+        setTxCurrency(backup.user.baseCurrency);
+      }
+      await refreshUnsorted();
+      const parts = [
+        t.importSuccess.replace("{count}", String(result.transactionsImported)),
+        result.receiptsRestored ? `${result.receiptsRestored} receipts` : "",
+      ].filter(Boolean);
+      setImportMessage(parts.join(" · "));
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.importFailed);
+    }
+  };
+
+  const handleSaveSettings = async (payload) => {
+    setSettingsBusy(true);
+    setSettingsError("");
+    try {
+      const settings = await updateSettings(payload);
+      setBaseCurrency(settings.baseCurrency);
+      setTxCurrency(settings.baseCurrency);
+      const rows = await fetchTransactions();
+      setTransactions(rows);
+      setSettingsOpen(false);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : t.saveFailed);
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  const handleAddCategory = async (payload) => {
+    setCategoryBusy(true);
+    setCategoryError("");
+    try {
+      const created = await createCategory(payload);
+      setCategories((previous) => [...previous, created].sort((a, b) => a.label.localeCompare(b.label)));
+    } catch (err) {
+      setCategoryError(err instanceof Error ? err.message : t.categoryFailed);
+    } finally {
+      setCategoryBusy(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id) => {
+    setCategoryBusy(true);
+    setCategoryError("");
+    try {
+      await deleteCategory(id);
+      setCategories((previous) => previous.filter((item) => item.id !== id));
+    } catch (err) {
+      setCategoryError(err instanceof Error ? err.message : t.categoryFailed);
+    } finally {
+      setCategoryBusy(false);
+    }
+  };
+
+  if (authLoading) {
+    return <div className="auth-loading">{t.loadingData}</div>;
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
 
   return (
     <div className={`app ${dir}`} dir={dir}>
@@ -559,20 +920,70 @@ function App() {
         tabIndex={-1}
         onChange={handleReceiptFile}
       />
+      <input
+        ref={csvImportRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="visually-hidden-input"
+        tabIndex={-1}
+        onChange={handleCsvImport}
+      />
+      <input
+        ref={jsonImportRef}
+        type="file"
+        accept=".json,application/json"
+        className="visually-hidden-input"
+        tabIndex={-1}
+        onChange={handleJsonRestore}
+      />
+
+      <CategoryManager
+        open={categoryOpen}
+        onClose={() => {
+          setCategoryOpen(false);
+          setCategoryError("");
+        }}
+        categories={categories}
+        onAdd={handleAddCategory}
+        onDelete={handleDeleteCategory}
+        t={t}
+        busy={categoryBusy}
+        error={categoryError}
+      />
+
+      <SettingsModal
+        key={settingsOpen ? baseCurrency : "closed"}
+        open={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false);
+          setSettingsError("");
+        }}
+        settings={{ baseCurrency }}
+        currencies={supportedCurrencies}
+        onSave={handleSaveSettings}
+        t={t}
+        busy={settingsBusy}
+        error={settingsError}
+      />
 
       <ReceiptScanModal
         open={receiptOpen}
-        onClose={() => {
-          if (!receiptLoading) setReceiptOpen(false);
-        }}
+        onClose={closeReceiptModal}
         draft={receiptDraft}
         onChangeDraft={setReceiptDraft}
-        onConfirm={handleReceiptConfirm}
+        onConfirm={() => handleReceiptConfirm(false)}
+        onConfirmForce={() => handleReceiptConfirm(true)}
         loading={receiptLoading}
         progress={receiptProgress}
         error={receiptError}
+        duplicateWarning={duplicateWarning}
         t={t}
-        categoryKeys={categories}
+        categories={categories.map((item) => ({
+          slug: item.slug,
+          label: categoryLabels[item.slug] ?? item.label,
+        }))}
+        currencies={supportedCurrencies}
+        previewUrl={activeReceiptId ? receiptImageUrl(activeReceiptId) : null}
         hint={receiptParseSource === "openai" ? t.receiptReviewHintOpenAI : t.receiptReviewHintLocal}
       />
 
@@ -601,42 +1012,64 @@ function App() {
         </div>
       </div>
 
-      <div className="user-switcher">
-        <label htmlFor="user-input">{t.user}</label>
-        <input
-          id="user-input"
-          type="text"
-          value={userInput}
-          placeholder={t.userPlaceholder}
-          onChange={(e) => setUserInput(e.target.value)}
-        />
-        <button type="button" className="save-user-btn" onClick={handleSaveUser}>
-          {t.saveUser}
+      <div className="user-bar">
+        <span className="user-bar-label">{t.signedInAs}</span>
+        <span className="user-bar-name">{user.name}</span>
+        <span className="user-bar-email">{user.email}</span>
+        <button type="button" className="data-actions-btn" onClick={() => setSettingsOpen(true)}>
+          {t.settingsTitle}
         </button>
-        <span className="current-user">
-          {t.currentUser}: <strong>{activeUser}</strong>
-        </span>
-        <div className="users-list-wrap">
-          <p className="users-title">{t.users}</p>
-          <p className="privacy-note">{t.privacyNote}</p>
-          <div className="users-list">
-            {users.length === 0 ? (
-              <span className="user-chip muted">{t.noUsers}</span>
-            ) : (
-              users.map((user) => (
-                <button
-                  type="button"
-                  key={user}
-                  className={`user-chip ${user === activeUser ? "active-user-chip" : ""}`}
-                  onClick={() => handleSelectUser(user)}
-                >
-                  {user}
-                </button>
-              ))
-            )}
+        <button type="button" className="data-actions-btn" onClick={() => setCategoryOpen(true)}>
+          {t.manageCategories}
+        </button>
+        <button type="button" className="logout-btn" onClick={() => logout()}>
+          {t.logout}
+        </button>
+      </div>
+
+      <div className="data-actions">
+        <button type="button" className="data-actions-btn" onClick={() => csvImportRef.current?.click()}>
+          {t.importCsv}
+        </button>
+        <button type="button" className="data-actions-btn" onClick={handleBackupJson}>
+          {t.backupFull}
+        </button>
+        <button type="button" className="data-actions-btn" onClick={() => jsonImportRef.current?.click()}>
+          {t.restoreJson}
+        </button>
+        <button type="button" className="data-actions-btn" onClick={handleExportCsvAll} disabled={transactions.length === 0}>
+          {t.exportCsvAll}
+        </button>
+      </div>
+
+      {duplicateWarning?.type === "receipt" && !receiptOpen ? (
+        <div className="duplicate-banner">
+          <strong>{t.duplicateReceiptTitle}</strong>
+          <span>{t.duplicateReceiptBody}</span>
+          <div className="duplicate-actions">
+            <button type="button" className="duplicate-force-btn" onClick={handleForceDuplicateReceipt}>
+              {t.saveAnyway}
+            </button>
+            <button type="button" className="duplicate-dismiss-btn" onClick={() => setDuplicateWarning(null)}>
+              {t.cancel}
+            </button>
           </div>
         </div>
-      </div>
+      ) : null}
+
+      {importMessage ? <p className="empty-state">{importMessage}</p> : null}
+
+      <UnsortedInbox
+        receipts={unsortedReceipts}
+        t={t}
+        formatCurrency={formatCurrency}
+        categoryLabels={categoryLabels}
+        onReview={handleReviewInboxReceipt}
+        onDelete={handleDeleteInboxReceipt}
+        busyId={receiptBusyId}
+      />
+
+      {dataLoading ? <p className="empty-state">{t.loadingData}</p> : null}
 
       <div className="summary summary-5">
         <div className="summary-card">
@@ -701,15 +1134,40 @@ function App() {
             <option value="income">{t.incomeType}</option>
             <option value="expense">{t.expenseType}</option>
           </select>
+          <select value={txCurrency} onChange={(e) => setTxCurrency(e.target.value)}>
+            {supportedCurrencies.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.code}
+              </option>
+            ))}
+          </select>
           <select value={category} onChange={(e) => setCategory(e.target.value)}>
-            {categories.map((currentCategory) => (
-              <option key={currentCategory} value={currentCategory}>
-                {t.categories[currentCategory]}
+            {categories.map((item) => (
+              <option key={item.slug} value={item.slug}>
+                {categoryLabels[item.slug] ?? item.label}
               </option>
             ))}
           </select>
           <button type="submit">{t.add}</button>
         </form>
+        {duplicateWarning?.type === "transaction" && !receiptOpen ? (
+          <div className="duplicate-banner">
+            <strong>{t.duplicateTxTitle}</strong>
+            <span>{t.duplicateTxBody}</span>
+            <div className="duplicate-actions">
+              <button
+                type="button"
+                className="duplicate-force-btn"
+                onClick={() => handleSubmit({ preventDefault: () => {} })}
+              >
+                {t.saveAnyway}
+              </button>
+              <button type="button" className="duplicate-dismiss-btn" onClick={() => setDuplicateWarning(null)}>
+                {t.cancel}
+              </button>
+            </div>
+          </div>
+        ) : null}
         {error ? <p className="error-message">{error}</p> : null}
       </div>
 
@@ -718,6 +1176,14 @@ function App() {
           <h2>{t.txCount}</h2>
           <div className="export-actions">
             <span className="export-hint">{t.exportHint}</span>
+            <button
+              type="button"
+              className="export-btn export-btn-csv"
+              disabled={filteredTransactions.length === 0}
+              onClick={handleExportCsvFiltered}
+            >
+              {t.exportCsvFiltered}
+            </button>
             <button
               type="button"
               className="export-btn export-btn-excel"
@@ -750,9 +1216,9 @@ function App() {
           </select>
           <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
             <option value="all">{t.allCategories}</option>
-            {categories.map((currentCategory) => (
-              <option key={currentCategory} value={currentCategory}>
-                {t.categories[currentCategory]}
+            {categories.map((item) => (
+              <option key={item.slug} value={item.slug}>
+                {categoryLabels[item.slug] ?? item.label}
               </option>
             ))}
           </select>
@@ -782,6 +1248,7 @@ function App() {
                   <th>{t.category}</th>
                   <th>{t.type}</th>
                   <th>{t.amount}</th>
+                  <th>{t.receiptColumn}</th>
                   <th>{t.action}</th>
                 </tr>
               </thead>
@@ -790,11 +1257,31 @@ function App() {
                   <tr key={transaction.id}>
                     <td>{transaction.date}</td>
                     <td>{transaction.description}</td>
-                    <td>{t.categories[transaction.category]}</td>
+                    <td>{categoryLabels[transaction.category] ?? transaction.category}</td>
                     <td className="capitalize">{transaction.type === "income" ? t.incomeType : t.expenseType}</td>
                     <td className={transaction.type === "income" ? "income-value" : "expense-value"}>
                       {transaction.type === "income" ? "+" : "-"}
-                      {formatCurrency(transaction.amount)}
+                      {formatCurrency(transactionAmountBase(transaction))}
+                      {transaction.currency && transaction.currency !== baseCurrency ? (
+                        <span className="currency-note">
+                          {" "}
+                          ({formatMoney(transaction.amount, transaction.currency, locale)})
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      {transaction.receiptId ? (
+                        <a
+                          className="receipt-link-btn"
+                          href={receiptImageUrl(transaction.receiptId)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t.viewReceipt}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td>
                       <button type="button" className="delete-btn" onClick={() => handleDelete(transaction.id)}>
