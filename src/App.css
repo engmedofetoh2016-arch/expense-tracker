@@ -465,15 +465,15 @@ html[data-theme="dark"] .export-btn-pdf {
   color: #fb7185;
 }
 
-form {
+.app form {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
   align-items: stretch;
 }
 
-form input,
-form select,
+.app form input,
+.app form select,
 .filters select,
 .filters input {
   padding: 12px 14px;
@@ -485,12 +485,12 @@ form select,
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
-form input::placeholder {
+.app form input::placeholder {
   color: var(--text-subtle);
 }
 
-form input:focus,
-form select:focus,
+.app form input:focus,
+.app form select:focus,
 .filters select:focus,
 .filters input:focus {
   outline: none;
@@ -499,21 +499,21 @@ form select:focus,
   background: var(--surface);
 }
 
-form input[type="text"] {
+.app form input[type="text"] {
   flex: 2 1 220px;
 }
 
-form input[type="number"],
-form input[type="date"] {
+.app form input[type="number"],
+.app form input[type="date"] {
   flex: 1 1 140px;
 }
 
-form select {
+.app form select {
   flex: 1 1 150px;
   cursor: pointer;
 }
 
-form button {
+.app form button {
   padding: 12px 22px;
   background: linear-gradient(135deg, var(--indigo) 0%, #6366f1 100%);
   color: #fff;
@@ -526,11 +526,11 @@ form button {
   transition: transform 0.12s, box-shadow 0.15s;
 }
 
-form button:hover {
+.app form button:hover {
   box-shadow: 0 6px 20px rgba(79, 70, 229, 0.45);
 }
 
-form button:active {
+.app form button:active {
   transform: translateY(1px);
 }
 

@@ -93,6 +93,9 @@ html[data-theme="dark"] .auth-hero h1 {
 }
 
 .auth-form input {
+  width: 100%;
+  flex: none;
+  min-height: unset;
   padding: 12px 14px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
